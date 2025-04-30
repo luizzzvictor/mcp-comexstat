@@ -13,23 +13,22 @@ O servidor MCP Comexstat fornece ferramentas para consultar estatísticas de exp
 
 ## Características
 
-- Implementado usando a biblioteca [easy-mcp](https://github.com/zcaceres/easy-mcp)
-- Abordagem com decoradores experimentais para uma API limpa e declarativa
+- Implementado usando [@modelcontextprotocol/sdk](https://github.com/ModelContext/sdk)
+- Tipagem com TypeScript
+- Validação de dados com Zod
 - Suporte para comunicação via stdin/stdout (padrão MCP)
-- Opção para modo HTTP para integração com outras ferramentas
-- Testes unitários e de integração abrangentes
-- Documentação detalhada de uso e implantação
+- Tratamento robusto de erros e respostas da API
 
 ## Instalação
 
 ```bash
 # Clone o repositório
-git clone https://github.com/seu-usuario/mcp-comexstat-easy.git
+git clone https://github.com/luizzzvictor/mcp-comexstat-easy.git
 cd mcp-comexstat-easy
 
 # Instale as dependências
 npm install
-n
+
 # Compile o código TypeScript
 npm run build
 ```
@@ -41,21 +40,74 @@ npm run build
 npm start
 ```
 
-Para mais detalhes sobre como usar o servidor, consulte a [documentação de uso](./docs/usage.md).
+## Ferramentas Disponíveis
+
+O servidor MCP fornece as seguintes ferramentas:
+
+### Dados Gerais
+
+- `getLastUpdate()` - Obtém a data da última atualização dos dados
+- `getAvailableYears()` - Lista os anos disponíveis para consulta
+- `getAvailableFilters()` - Lista os filtros disponíveis
+- `getFilterValues(filter, language?)` - Obtém valores para um filtro específico
+- `getAvailableFields()` - Lista os campos disponíveis para detalhamento
+- `getAvailableMetrics()` - Lista as métricas disponíveis
+- `queryData(options)` - Realiza consultas detalhadas com os seguintes parâmetros:
+  - `flow`: "export" | "import"
+  - `period`: { from: "YYYY-MM", to: "YYYY-MM" }
+  - `monthDetail`: boolean
+  - `filters`: Array de filtros (opcional)
+  - `details`: Array de campos para detalhamento
+  - `metrics`: Array de métricas
+  - `language`: string (opcional, default: "pt")
+
+### Dados por Municípios
+
+- `queryMunicipalitiesData(options)` - Consulta dados com foco em municípios
+
+### Dados Históricos
+
+- `queryHistoricalData(options)` - Consulta dados históricos (1989-1996)
+
+### Tabelas Auxiliares
+
+- `getStates()` - Lista estados brasileiros
+- `getStateDetails(ufId)` - Detalhes de um estado específico
+- `getCities()` - Lista municípios
+- `getCityDetails(cityId)` - Detalhes de um município específico
+- `getCountries(search?)` - Lista países
+- `getCountryDetails(countryId)` - Detalhes de um país específico
+- `getEconomicBlocks(options?)` - Lista blocos econômicos
+- `getHarmonizedSystem(options?)` - Sistema Harmonizado (SH)
+- `getNBM(options?)` - Nomenclatura Brasileira de Mercadorias
+- `getNBMDetails(coNbm)` - Detalhes de um código NBM específico
+
+## Exemplo de Uso
+
+```typescript
+// Consultar exportações para os EUA em 2023
+const result = await queryData({
+  flow: "export",
+  period: { from: "2023-01", to: "2023-12" },
+  monthDetail: false,
+  filters: [{ filter: "country", values: [105] }],
+  details: ["country", "month"],
+  metrics: ["metricFOB", "metricKG"],
+});
+```
 
 ## Integração com Claude
 
 Para usar o servidor MCP com Claude Desktop:
 
 1. Adicione a configuração ao arquivo `claude_desktop_config.json`:
+
    ```json
    {
      "mcpServers": {
        "comexstat": {
          "command": "node",
-         "args": [
-           "/caminho/completo/para/mcp-comexstat-easy/dist/index.js"
-         ]
+         "args": ["/caminho/completo/para/mcp-comexstat-easy/dist/index.js"]
        }
      }
    }
@@ -65,46 +117,6 @@ Para usar o servidor MCP com Claude Desktop:
    ```
    /mcp comexstat
    ```
-
-## Documentação
-
-- [Guia de Uso](./docs/usage.md) - Instruções detalhadas sobre como usar o servidor MCP
-- [Opções de Implantação](./docs/deployment.md) - Guia para implantar o servidor em diferentes ambientes
-
-## Ferramentas Disponíveis
-
-O servidor MCP fornece as seguintes ferramentas:
-
-### Dados Gerais
-- `getLastUpdate()` - Obtém a data da última atualização dos dados
-- `getAvailableYears()` - Lista os anos disponíveis para consulta
-- `getAvailableFilters()` - Lista os filtros disponíveis
-- `getFilterValues(filter, search?, page?, pageSize?)` - Obtém valores para um filtro específico
-- `getAvailableFields()` - Lista os campos disponíveis para detalhamento
-- `getAvailableMetrics()` - Lista as métricas disponíveis
-- `queryData(flow, period, filters?, details, metrics)` - Realiza consultas detalhadas
-
-### Dados por Municípios
-- `queryMunicipalitiesData(flow, period, filters?, details, metrics)` - Consulta dados com foco em municípios
-
-### Dados Históricos
-- `queryHistoricalData(flow, period, filters?, details, metrics)` - Consulta dados históricos (1989-1996)
-
-### Tabelas Auxiliares
-- `getAuxiliaryTable(table, search?, page?, pageSize?)` - Acessa tabelas auxiliares
-
-## Exemplo de Uso
-
-```javascript
-// Consultar exportações para os EUA em 2023
-const result = await queryData(
-  "export",
-  {"from": "2023-01", "to": "2023-12"},
-  [{"filter": "country", "values": [105]}],
-  ["country", "month"],
-  ["metricFOB", "metricKG"]
-);
-```
 
 ## Desenvolvimento
 
