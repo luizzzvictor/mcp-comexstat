@@ -1,4 +1,4 @@
-# MCP Server para API Comexstat
+# MCP Server para API Comexstat <img src="https://badge.mcpx.dev?type=server" title="MCP Server"/>
 
 Este projeto implementa um servidor MCP (Model Context Protocol) para a API Comexstat, permitindo que modelos de IA como Claude interajam diretamente com os dados de comércio exterior do Brasil.
 
