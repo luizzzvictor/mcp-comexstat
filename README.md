@@ -2,6 +2,10 @@
 
 Este projeto implementa um servidor MCP (Model Context Protocol) para a API Comexstat, permitindo que modelos de IA como Claude interajam diretamente com os dados de comércio exterior do Brasil.
 
+<a href="https://glama.ai/mcp/servers/@luizzzvictor/mcp-comexstat">
+  <img width="380" height="200" src="https://glama.ai/mcp/servers/@luizzzvictor/mcp-comexstat/badge" alt="mcp-comexstat MCP server" />
+</a>
+
 ## Visão Geral
 
 O servidor MCP Comexstat fornece ferramentas para consultar estatísticas de exportação e importação brasileiras, incluindo:
