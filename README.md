@@ -1,4 +1,5 @@
 # MCP Server para API Comexstat <img src="https://badge.mcpx.dev?type=server" title="MCP Server"/>
+[![smithery badge](https://smithery.ai/badge/@luizzzvictor/mcp-comexstat)](https://smithery.ai/server/@luizzzvictor/mcp-comexstat)
 
 Este projeto implementa um servidor MCP (Model Context Protocol) para a API Comexstat, permitindo que modelos de IA como Claude interajam diretamente com os dados de comércio exterior do Brasil.
 
@@ -25,6 +26,15 @@ O servidor MCP Comexstat fornece ferramentas para consultar estatísticas de exp
 
 ## Instalação
 
+### Installing via Smithery
+
+To install Comexstat Data Server for Claude Desktop automatically via [Smithery](https://smithery.ai/server/@luizzzvictor/mcp-comexstat):
+
+```bash
+npx -y @smithery/cli install @luizzzvictor/mcp-comexstat --client claude
+```
+
+### Manual Installation
 ```bash
 # Clone o repositório
 git clone https://github.com/luizzzvictor/mcp-comexstat-easy.git
