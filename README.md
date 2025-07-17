@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/luizzzvictor-mcp-comexstat-badge.png)](https://mseep.ai/app/luizzzvictor-mcp-comexstat)
+
 # MCP Server para API Comexstat <img src="https://badge.mcpx.dev?type=server" title="MCP Server"/>
 [![smithery badge](https://smithery.ai/badge/@luizzzvictor/mcp-comexstat)](https://smithery.ai/server/@luizzzvictor/mcp-comexstat)
 
