@@ -12,10 +12,11 @@ const mcp = new ComexstatMCP({
  */
 async function main() {
   try {
-    console.log("Starting Comexstat MCP server...");
+    // Note: console.log statements removed to avoid interfering with MCP JSON-RPC protocol
+    // All stdout must be valid JSON for MCP communication
     await mcp.start();
-    console.log("Comexstat MCP server is running");
   } catch (error) {
+    // stderr is safe to use for error logging in MCP servers
     console.error("Error starting Comexstat MCP server:", error);
     process.exit(1);
   }
