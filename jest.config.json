@@ -1,5 +1,5 @@
 {
-  "preset": "jest",
+  "preset": "ts-jest",
   "testEnvironment": "node",
   "transform": {
     "^.+\\.tsx?$": "ts-jest"
@@ -13,7 +13,7 @@
     "json",
     "node"
   ],
-  "collectCoverage": true,
+  "collectCoverage": false,
   "coverageDirectory": "coverage",
   "collectCoverageFrom": [
     "src/**/*.{ts,tsx}",

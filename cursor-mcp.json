@@ -2,7 +2,7 @@
   "mcpServers": {
     "comexstat": {
       "command": "node",
-      "args": ["D:/APPs/mcp-comexstat-easy/dist/index.js"],
+      "args": ["/absolute/path/to/mcp-comexstat/dist/index.js"],
       "description": "MCP server for accessing Brazilian foreign trade statistics via Comexstat API"
     }
   }

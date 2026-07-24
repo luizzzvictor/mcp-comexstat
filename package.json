@@ -1,13 +1,29 @@
 {
-  "name": "mcp-comexstat-easy",
-  "version": "1.0.0",
-  "description": "MCP server for Comexstat API using easy-mcp",
+  "name": "mcp-comexstat",
+  "version": "1.1.0",
+  "description": "MCP server for Brazil's official Comex Stat foreign-trade API",
   "main": "dist/index.js",
+  "bin": {
+    "comexstat": "dist/index.js"
+  },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/luizzzvictor/mcp-comexstat.git"
+  },
   "scripts": {
     "build": "tsc",
     "start": "node dist/index.js",
     "dev": "ts-node src/index.ts",
-    "test": "jest"
+    "test": "jest --runInBand",
+    "test:coverage": "jest --coverage --runInBand",
+    "smoke": "npm run build && node scripts/smoke-mcp.mjs",
+    "check": "npm run build && npm test && npm run smoke",
+    "prepublishOnly": "npm run check"
   },
   "keywords": [
     "mcp",
@@ -15,20 +31,25 @@
     "api",
     "ai"
   ],
-  "author": "",
+  "author": "Luiz Silva",
   "license": "MIT",
+  "engines": {
+    "node": ">=18"
+  },
   "dependencies": {
-    "axios": "^1.6.2",
-    "dotenv": "^16.3.1",
-    "@modelcontextprotocol/sdk": "^1.10.2",
-    "zod": "^3.22.4"
+    "@modelcontextprotocol/sdk": "1.29.0",
+    "axios": "^1.18.1",
+    "zod": "^3.25.76"
   },
   "devDependencies": {
-    "@types/jest": "^29.5.5",
-    "@types/node": "^20.6.3",
-    "jest": "^29.7.0",
-    "ts-jest": "^29.1.1",
-    "ts-node": "^10.9.1",
-    "typescript": "^5.2.2"
+    "@types/jest": "^30.0.0",
+    "@types/node": "^22.18.0",
+    "jest": "^30.4.2",
+    "ts-jest": "^29.4.12",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.9.3"
+  },
+  "overrides": {
+    "@hono/node-server": "2.0.11"
   }
 }

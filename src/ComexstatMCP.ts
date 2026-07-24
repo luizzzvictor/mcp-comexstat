@@ -1,7 +1,14 @@
 import { McpServer } from "@modelcontextprotocol/sdk/server/mcp.js";
 import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js";
+import type { Transport } from "@modelcontextprotocol/sdk/shared/transport.js";
 import { z } from "zod";
 import ComexstatClient from "./ComexstatClient";
+
+export interface ComexstatMCPOptions {
+  version: string;
+  description?: string;
+  client?: ComexstatClient;
+}
 
 /**
  * MCP Server for Comexstat API
@@ -11,25 +18,51 @@ export class ComexstatMCP {
   private server: McpServer;
   private client: ComexstatClient;
 
-  constructor(options: { version: string; description?: string }) {
+  constructor(options: ComexstatMCPOptions) {
     this.server = new McpServer({
       name: "comexstat",
       version: options.version,
       description: options.description || "MCP server for Comexstat API",
     });
 
-    this.client = new ComexstatClient();
+    this.client = options.client || new ComexstatClient();
     this.setupTools();
   }
 
   private setupTools() {
+    const tool = this.server.tool.bind(this.server) as unknown as (
+      name: string,
+      schema: Record<string, z.ZodTypeAny>,
+      handler: (arguments_: any) => any
+    ) => void;
+
+    tool("healthCheck", {}, async () => {
+      const [lastUpdate, availableYears] = await Promise.all([
+        this.client.getLastUpdate(),
+        this.client.getAvailableYears(),
+      ]);
+
+      return {
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "ok",
+              lastUpdate,
+              availableYears,
+            }),
+          },
+        ],
+      };
+    });
+
     // Get last update date
-    this.server.tool("getLastUpdate", {}, async () => ({
+    tool("getLastUpdate", {}, async () => ({
       content: [{ type: "text", text: await this.client.getLastUpdate() }],
     }));
 
     // Get available years
-    this.server.tool("getAvailableYears", {}, async () => ({
+    tool("getAvailableYears", {}, async () => ({
       content: [
         {
           type: "text",
@@ -39,7 +72,7 @@ export class ComexstatMCP {
     }));
 
     // Get available filters
-    this.server.tool("getAvailableFilters", {}, async () => ({
+    tool("getAvailableFilters", {}, async () => ({
       content: [
         {
           type: "text",
@@ -49,7 +82,7 @@ export class ComexstatMCP {
     }));
 
     // Get filter values
-    this.server.tool(
+    tool(
       "getFilterValues",
       {
         filter: z.string(),
@@ -68,7 +101,7 @@ export class ComexstatMCP {
     );
 
     // Get available fields
-    this.server.tool("getAvailableFields", {}, async () => ({
+    tool("getAvailableFields", {}, async () => ({
       content: [
         {
           type: "text",
@@ -78,7 +111,7 @@ export class ComexstatMCP {
     }));
 
     // Get available metrics
-    this.server.tool("getAvailableMetrics", {}, async () => ({
+    tool("getAvailableMetrics", {}, async () => ({
       content: [
         {
           type: "text",
@@ -88,7 +121,7 @@ export class ComexstatMCP {
     }));
 
     // Query data
-    this.server.tool(
+    tool(
       "queryData",
       {
         flow: z.enum(["export", "import"]),
@@ -177,7 +210,7 @@ export class ComexstatMCP {
     );
 
     // Query municipalities data
-    this.server.tool(
+    tool(
       "queryMunicipalitiesData",
       {
         flow: z.enum(["export", "import"]),
@@ -237,7 +270,7 @@ export class ComexstatMCP {
     );
 
     // Query historical data
-    this.server.tool(
+    tool(
       "queryHistoricalData",
       {
         flow: z.enum(["export", "import"]),
@@ -297,7 +330,7 @@ export class ComexstatMCP {
     );
 
     // Get auxiliary table data
-    this.server.tool(
+    tool(
       "getAuxiliaryTable",
       {
         table: z.string(),
@@ -318,7 +351,7 @@ export class ComexstatMCP {
     );
 
     // Get states (UF) list
-    this.server.tool("getStates", {}, async () => ({
+    tool("getStates", {}, async () => ({
       content: [
         {
           type: "text",
@@ -328,7 +361,7 @@ export class ComexstatMCP {
     }));
 
     // Get state details
-    this.server.tool(
+    tool(
       "getStateDetails",
       {
         ufId: z.string(),
@@ -344,7 +377,7 @@ export class ComexstatMCP {
     );
 
     // Get cities list
-    this.server.tool("getCities", {}, async () => ({
+    tool("getCities", {}, async () => ({
       content: [
         {
           type: "text",
@@ -354,7 +387,7 @@ export class ComexstatMCP {
     }));
 
     // Get city details
-    this.server.tool(
+    tool(
       "getCityDetails",
       {
         cityId: z.string(),
@@ -370,7 +403,7 @@ export class ComexstatMCP {
     );
 
     // Get countries list
-    this.server.tool(
+    tool(
       "getCountries",
       {
         search: z.string().optional(),
@@ -386,7 +419,7 @@ export class ComexstatMCP {
     );
 
     // Get country details
-    this.server.tool(
+    tool(
       "getCountryDetails",
       {
         countryId: z.string(),
@@ -404,7 +437,7 @@ export class ComexstatMCP {
     );
 
     // Get economic blocks
-    this.server.tool(
+    tool(
       "getEconomicBlocks",
       {
         language: z.string().optional().default("pt"),
@@ -424,7 +457,7 @@ export class ComexstatMCP {
     );
 
     // Get Harmonized System classifications
-    this.server.tool(
+    tool(
       "getHarmonizedSystem",
       {
         language: z.string().optional().default("pt"),
@@ -450,7 +483,7 @@ export class ComexstatMCP {
     );
 
     // Get NBM (Nomenclatura Brasileira de Mercadorias) data
-    this.server.tool(
+    tool(
       "getNBM",
       {
         language: z.string().optional().default("pt"),
@@ -472,7 +505,7 @@ export class ComexstatMCP {
     );
 
     // Get NBM details
-    this.server.tool(
+    tool(
       "getNBMDetails",
       {
         coNbm: z.string(),
@@ -492,7 +525,14 @@ export class ComexstatMCP {
    * Starts the MCP server
    */
   async start(): Promise<void> {
-    const transport = new StdioServerTransport();
+    await this.connect(new StdioServerTransport());
+  }
+
+  async connect(transport: Transport): Promise<void> {
     await this.server.connect(transport);
+  }
+
+  async close(): Promise<void> {
+    await this.server.close();
   }
 }

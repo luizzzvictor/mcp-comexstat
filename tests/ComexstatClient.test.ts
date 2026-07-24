@@ -1,103 +1,203 @@
-import { describe, expect, test, jest, beforeEach } from '@jest/globals';
-import ComexstatClient from '../src/ComexstatClient';
-import axios from 'axios';
+import axios, { AxiosInstance } from "axios";
+import ComexstatClient from "../src/ComexstatClient";
 
-// Mock axios
-jest.mock('axios');
+jest.mock("axios");
+
 const mockedAxios = axios as jest.Mocked<typeof axios>;
 
-describe('ComexstatClient', () => {
-  let client: ComexstatClient;
-  
+describe("ComexstatClient", () => {
+  const httpClient = {
+    get: jest.fn(),
+    post: jest.fn(),
+  };
+
   beforeEach(() => {
-    client = new ComexstatClient();
-    mockedAxios.create.mockReturnValue(mockedAxios as any);
     jest.clearAllMocks();
+    mockedAxios.create.mockReturnValue(httpClient as unknown as AxiosInstance);
+    mockedAxios.isAxiosError.mockImplementation(
+      (error: unknown) =>
+        Boolean((error as { isAxiosError?: boolean })?.isAxiosError)
+    );
   });
 
-  test('getLastUpdate should return the last update date', async () => {
-    const mockResponse = { data: { lastUpdate: '2023-04-15' } };
-    mockedAxios.get.mockResolvedValueOnce(mockResponse);
+  test("uses certificate validation and identifies itself", () => {
+    new ComexstatClient();
 
-    const result = await client.getLastUpdate();
-    
-    expect(mockedAxios.get).toHaveBeenCalledWith('/general/last-update', expect.any(Object));
-    expect(result).toBe('2023-04-15');
+    expect(mockedAxios.create).toHaveBeenCalledWith(
+      expect.objectContaining({
+        baseURL: "https://api-comexstat.mdic.gov.br",
+        headers: expect.objectContaining({
+          "User-Agent": "mcp-comexstat/1.1.0",
+        }),
+      })
+    );
+    expect(mockedAxios.create.mock.calls[0][0]).not.toHaveProperty(
+      "httpsAgent"
+    );
   });
 
-  test('getAvailableYears should return array of years', async () => {
-    const mockResponse = { data: { years: [2020, 2021, 2022, 2023] } };
-    mockedAxios.get.mockResolvedValueOnce(mockResponse);
+  test("reads the current update date from the official endpoint", async () => {
+    httpClient.get.mockResolvedValueOnce({
+      data: {
+        data: {
+          updated: "2026-07-03",
+          year: "2026",
+          monthNumber: "6",
+        },
+        success: true,
+      },
+    });
+    const client = new ComexstatClient({ minRequestIntervalMs: 0 });
 
-    const result = await client.getAvailableYears();
-    
-    expect(mockedAxios.get).toHaveBeenCalledWith('/general/available-years', expect.any(Object));
-    expect(result).toEqual([2020, 2021, 2022, 2023]);
+    await expect(client.getLastUpdate()).resolves.toBe("2026-07-03");
+    expect(httpClient.get).toHaveBeenCalledWith(
+      "/general/dates/updated",
+      {}
+    );
   });
 
-  test('queryData should make a POST request with correct parameters', async () => {
-    const mockResponse = { 
-      data: { 
-        data: [{ country: 'USA', value: 1000 }],
-        pagination: { total: 1, page: 1, pageSize: 10, pages: 1 }
-      } 
+  test("retries throttled requests using Retry-After", async () => {
+    const sleep = jest.fn(async () => undefined);
+    const throttledError = {
+      isAxiosError: true,
+      message: "Too Many Requests",
+      response: {
+        status: 429,
+        headers: { "retry-after": "0.01" },
+        data: { message: "Rate limited" },
+      },
+      config: { url: "/general/dates/years" },
     };
-    mockedAxios.post.mockResolvedValueOnce(mockResponse);
+    httpClient.get
+      .mockRejectedValueOnce(throttledError)
+      .mockResolvedValueOnce({
+        data: {
+          data: { min: "1997", max: "2026" },
+          success: true,
+        },
+      });
+    const client = new ComexstatClient({
+      maxRetries: 2,
+      minRequestIntervalMs: 0,
+      retryBaseDelayMs: 1,
+      sleep,
+    });
 
-    const params = {
-      flow: 'export' as const,
-      period: { from: '2023-01', to: '2023-12' },
-      filters: [{ filter: 'country', values: [105] }],
-      details: ['country'],
-      metrics: ['metricFOB']
-    };
+    await expect(client.getAvailableYears()).resolves.toEqual({
+      min: "1997",
+      max: "2026",
+    });
+    expect(httpClient.get).toHaveBeenCalledTimes(2);
+    expect(sleep).toHaveBeenCalledWith(10);
+  });
+
+  test("uses the wait suggested in a 429 response body", async () => {
+    const sleep = jest.fn(async () => undefined);
+    httpClient.get
+      .mockRejectedValueOnce({
+        isAxiosError: true,
+        message: "Too Many Requests",
+        response: {
+          status: 429,
+          headers: {},
+          data: {
+            message:
+              "Você excedeu o limite de solicitações. Tente novamente em 10 segundos.",
+          },
+        },
+      })
+      .mockResolvedValueOnce({
+        data: {
+          data: { min: "1997", max: "2026" },
+          success: true,
+        },
+      });
+    const client = new ComexstatClient({
+      maxRetries: 1,
+      minRequestIntervalMs: 0,
+      retryBaseDelayMs: 1,
+      sleep,
+    });
+
+    await client.getAvailableYears();
+
+    expect(sleep).toHaveBeenCalledWith(10000);
+  });
+
+  test("caches successful GET responses", async () => {
+    httpClient.get.mockResolvedValue({
+      data: {
+        data: { list: [{ id: "676", text: "Rússia" }] },
+        success: true,
+      },
+    });
+    const client = new ComexstatClient({
+      minRequestIntervalMs: 0,
+      cacheTtlMs: 60000,
+    });
+
+    const first = await client.getCountries("Rússia");
+    const second = await client.getCountries("Rússia");
+
+    expect(first).toEqual(second);
+    expect(httpClient.get).toHaveBeenCalledTimes(1);
+  });
+
+  test("posts a valid general trade query", async () => {
+    httpClient.post.mockResolvedValueOnce({
+      data: {
+        data: { list: [{ country: "Rússia", metricFOB: 1000 }] },
+        success: true,
+      },
+    });
+    const client = new ComexstatClient({ minRequestIntervalMs: 0 });
 
     const result = await client.queryData(
-      params.flow,
-      params.period,
-      params.filters,
-      params.details,
-      params.metrics
+      "export",
+      { from: "2026-01", to: "2026-06" },
+      false,
+      [{ filter: "country", values: [676] }],
+      ["country"],
+      ["metricFOB"]
     );
-    
-    expect(mockedAxios.post).toHaveBeenCalledWith('/general/query', {
-      flow: 'export',
-      period: { from: '2023-01', to: '2023-12' },
-      filters: [{ filter: 'country', values: [105] }],
-      details: ['country'],
-      metrics: ['metricFOB']
-    });
-    
-    expect(result.data).toEqual([{ country: 'USA', value: 1000 }]);
-    expect(result.pagination).toEqual({ total: 1, page: 1, pageSize: 10, pages: 1 });
+    await client.queryData(
+      "export",
+      { from: "2026-01", to: "2026-06" },
+      false,
+      [{ filter: "country", values: [676] }],
+      ["country"],
+      ["metricFOB"]
+    );
+
+    expect(result.data.list).toHaveLength(1);
+    expect(httpClient.post).toHaveBeenCalledWith(
+      "/general",
+      {
+        flow: "export",
+        monthDetail: false,
+        period: { from: "2026-01", to: "2026-06" },
+        filters: [{ filter: "country", values: [676] }],
+        details: ["country"],
+        metrics: ["metricFOB"],
+      },
+      { params: { language: "pt" } }
+    );
+    expect(httpClient.post).toHaveBeenCalledTimes(1);
   });
 
-  test('should handle API errors properly', async () => {
-    const errorResponse = {
-      response: {
-        status: 400,
-        data: { message: 'Invalid parameters' }
-      },
-      config: { url: '/general/query' },
-      message: 'Request failed with status code 400'
-    };
-    
-    mockedAxios.post.mockRejectedValueOnce(errorResponse);
-    
-    // Mock console.error to prevent test output pollution
-    const consoleErrorSpy = jest.spyOn(console, 'error').mockImplementation();
-    
-    await expect(client.queryData(
-      'export',
-      { from: '2023-01', to: '2023-12' },
-      [{ filter: 'invalid', values: [999] }],
-      ['country'],
-      ['metricFOB']
-    )).rejects.toThrow();
-    
-    expect(consoleErrorSpy).toHaveBeenCalled();
-    
-    // Restore console.error
-    consoleErrorSpy.mockRestore();
+  test("rejects malformed periods before making a request", async () => {
+    const client = new ComexstatClient({ minRequestIntervalMs: 0 });
+
+    await expect(
+      client.queryData(
+        "export",
+        { from: "2026", to: "2026-06" },
+        false,
+        [],
+        ["country"],
+        ["metricFOB"]
+      )
+    ).rejects.toThrow("YYYY-MM");
+    expect(httpClient.post).not.toHaveBeenCalled();
   });
 });
