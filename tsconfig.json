@@ -4,12 +4,11 @@
     "module": "commonjs",
     "outDir": "./dist",
     "rootDir": "./src",
+    "sourceMap": true,
     "strict": true,
     "esModuleInterop": true,
     "skipLibCheck": true,
     "forceConsistentCasingInFileNames": true,
-    "experimentalDecorators": true,
-    "emitDecoratorMetadata": true,
     "resolveJsonModule": true
   },
   "include": ["src/**/*"],

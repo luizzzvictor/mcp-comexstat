@@ -1,5 +1,4 @@
 import axios, { AxiosInstance, AxiosRequestConfig, AxiosError } from "axios";
-import https from "https";
 
 interface CustomAxiosError extends AxiosError {
   apiError?: {
@@ -10,8 +9,41 @@ interface CustomAxiosError extends AxiosError {
 }
 
 interface ComexstatErrorResponse {
-  message: string;
-  [key: string]: any;
+  message?: string;
+  error?: {
+    message?: string;
+  };
+}
+
+export interface ComexstatClientOptions {
+  baseUrl?: string;
+  timeoutMs?: number;
+  maxRetries?: number;
+  retryBaseDelayMs?: number;
+  minRequestIntervalMs?: number;
+  queryMinRequestIntervalMs?: number;
+  cacheTtlMs?: number;
+  sleep?: (milliseconds: number) => Promise<void>;
+}
+
+interface CacheEntry {
+  expiresAt: number;
+  value: unknown;
+}
+
+function readNonNegativeInteger(
+  environmentVariable: string,
+  fallback: number
+): number {
+  const rawValue = process.env[environmentVariable];
+  if (rawValue === undefined) {
+    return fallback;
+  }
+
+  const parsedValue = Number.parseInt(rawValue, 10);
+  return Number.isFinite(parsedValue) && parsedValue >= 0
+    ? parsedValue
+    : fallback;
 }
 
 /**
@@ -20,25 +52,63 @@ interface ComexstatErrorResponse {
 export class ComexstatClient {
   private client: AxiosInstance;
   private baseUrl: string;
+  private maxRetries: number;
+  private retryBaseDelayMs: number;
+  private minRequestIntervalMs: number;
+  private queryMinRequestIntervalMs: number;
+  private cacheTtlMs: number;
+  private sleep: (milliseconds: number) => Promise<void>;
+  private cache = new Map<string, CacheEntry>();
+  private requestQueue: Promise<void> = Promise.resolve();
+  private lastRequestStartedAt = 0;
+  private lastQueryStartedAt = 0;
 
   /**
    * Creates a new ComexstatClient
-   * @param baseUrl The base URL for the Comexstat API
+   * @param options Client options, or a base URL for backwards compatibility
    */
-  constructor(baseUrl: string = "https://api-comexstat.mdic.gov.br") {
-    this.baseUrl = baseUrl;
+  constructor(options: string | ComexstatClientOptions = {}) {
+    const resolvedOptions =
+      typeof options === "string" ? { baseUrl: options } : options;
+
+    this.baseUrl =
+      resolvedOptions.baseUrl ||
+      process.env.COMEXSTAT_API_URL ||
+      "https://api-comexstat.mdic.gov.br";
+    this.maxRetries =
+      resolvedOptions.maxRetries ??
+      readNonNegativeInteger("COMEXSTAT_MAX_RETRIES", 4);
+    this.retryBaseDelayMs =
+      resolvedOptions.retryBaseDelayMs ??
+      readNonNegativeInteger("COMEXSTAT_RETRY_BASE_DELAY_MS", 1000);
+    this.minRequestIntervalMs =
+      resolvedOptions.minRequestIntervalMs ??
+      readNonNegativeInteger("COMEXSTAT_MIN_REQUEST_INTERVAL_MS", 500);
+    this.queryMinRequestIntervalMs =
+      resolvedOptions.queryMinRequestIntervalMs ??
+      readNonNegativeInteger(
+        "COMEXSTAT_QUERY_MIN_REQUEST_INTERVAL_MS",
+        10000
+      );
+    this.cacheTtlMs =
+      resolvedOptions.cacheTtlMs ??
+      readNonNegativeInteger("COMEXSTAT_CACHE_TTL_MS", 300000);
+    this.sleep =
+      resolvedOptions.sleep ||
+      ((milliseconds) =>
+        new Promise((resolve) => setTimeout(resolve, milliseconds)));
+
     this.client = axios.create({
       baseURL: this.baseUrl,
-      timeout: 30000, // 30 seconds timeout
+      timeout:
+        resolvedOptions.timeoutMs ??
+        readNonNegativeInteger("COMEXSTAT_TIMEOUT_MS", 30000),
       headers: {
         "Content-Type": "application/json",
         Accept: "application/json",
+        "User-Agent": "mcp-comexstat/1.1.0",
       },
-      httpsAgent: new https.Agent({
-        rejectUnauthorized: false, // WARNING: This is not recommended for production use
-      }),
-      maxRedirects: 5, // Allow up to 5 redirects
-      validateStatus: (status) => status < 400, // Accept all successful responses
+      maxRedirects: 5,
     });
   }
 
@@ -49,18 +119,26 @@ export class ComexstatClient {
    * @returns The response data
    */
   async get<T>(endpoint: string, params?: Record<string, any>): Promise<T> {
-    try {
-      const config: AxiosRequestConfig = {};
-      if (params) {
-        config.params = params;
-      }
-
-      const response = await this.client.get<T>(endpoint, config);
-      return response.data;
-    } catch (error) {
-      this.handleError(error);
-      throw error;
+    const cacheKey = `GET:${endpoint}:${JSON.stringify(params || {})}`;
+    const cachedEntry = this.cache.get(cacheKey);
+    if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+      return cachedEntry.value as T;
     }
+
+    const config: AxiosRequestConfig = {};
+    if (params) {
+      config.params = params;
+    }
+
+    const responseData = await this.requestWithRetry(
+      endpoint,
+      () => this.client.get<T>(endpoint, config)
+    );
+    this.cache.set(cacheKey, {
+      expiresAt: Date.now() + this.cacheTtlMs,
+      value: responseData,
+    });
+    return responseData;
   }
 
   /**
@@ -75,37 +153,178 @@ export class ComexstatClient {
     data: any,
     params?: Record<string, any>
   ): Promise<T> {
-    try {
-      const config: AxiosRequestConfig = {};
-      if (params) {
-        config.params = params;
-      }
-      const response = await this.client.post<T>(endpoint, data, config);
-      return response.data;
-    } catch (error) {
-      this.handleError(error);
-      throw error;
+    const cacheKey = `POST:${endpoint}:${JSON.stringify(params || {})}:${JSON.stringify(
+      data
+    )}`;
+    const cachedEntry = this.cache.get(cacheKey);
+    if (cachedEntry && cachedEntry.expiresAt > Date.now()) {
+      return cachedEntry.value as T;
     }
+
+    const config: AxiosRequestConfig = {};
+    if (params) {
+      config.params = params;
+    }
+
+    const responseData = await this.requestWithRetry(
+      endpoint,
+      () => this.client.post<T>(endpoint, data, config)
+    );
+    this.cache.set(cacheKey, {
+      expiresAt: Date.now() + this.cacheTtlMs,
+      value: responseData,
+    });
+    return responseData;
+  }
+
+  private async requestWithRetry<T>(
+    endpoint: string,
+    request: () => Promise<{ data: T }>
+  ): Promise<T> {
+    for (let attempt = 0; attempt <= this.maxRetries; attempt += 1) {
+      await this.waitForRequestSlot(endpoint);
+
+      try {
+        const response = await request();
+        return response.data;
+      } catch (error) {
+        const shouldRetry =
+          attempt < this.maxRetries && this.isRetryableError(error);
+        if (!shouldRetry) {
+          this.handleError(error, endpoint);
+          throw error;
+        }
+
+        const delayMs = this.getRetryDelayMilliseconds(error, attempt);
+        console.error(
+          `Comex Stat request to ${endpoint} was throttled or unavailable; ` +
+            `retrying in ${delayMs} ms (${attempt + 1}/${this.maxRetries}).`
+        );
+        await this.sleep(delayMs);
+      }
+    }
+
+    throw new Error(`Request to ${endpoint} exhausted its retry budget.`);
+  }
+
+  private async waitForRequestSlot(endpoint: string): Promise<void> {
+    let releaseQueue!: () => void;
+    const previousRequest = this.requestQueue;
+    this.requestQueue = new Promise<void>((resolve) => {
+      releaseQueue = resolve;
+    });
+
+    await previousRequest;
+    try {
+      const isDataQuery = ["/general", "/cities", "/historical-data"].includes(
+        endpoint
+      );
+      const minimumInterval = isDataQuery
+        ? this.queryMinRequestIntervalMs
+        : this.minRequestIntervalMs;
+      const lastStartedAt = isDataQuery
+        ? this.lastQueryStartedAt
+        : this.lastRequestStartedAt;
+      const elapsed = Date.now() - lastStartedAt;
+      const waitMs = Math.max(0, minimumInterval - elapsed);
+      if (waitMs > 0) {
+        await this.sleep(waitMs);
+      }
+      const startedAt = Date.now();
+      this.lastRequestStartedAt = startedAt;
+      if (isDataQuery) {
+        this.lastQueryStartedAt = startedAt;
+      }
+    } finally {
+      releaseQueue();
+    }
+  }
+
+  private isRetryableError(error: unknown): boolean {
+    if (!axios.isAxiosError(error)) {
+      return false;
+    }
+
+    const status = error.response?.status;
+    if (status === 429 || (status !== undefined && status >= 500)) {
+      return true;
+    }
+
+    return (
+      error.response === undefined &&
+      ["ECONNABORTED", "ECONNRESET", "ETIMEDOUT", "EAI_AGAIN"].includes(
+        error.code || ""
+      )
+    );
+  }
+
+  private getRetryAfterMilliseconds(error: unknown): number | undefined {
+    if (!axios.isAxiosError(error)) {
+      return undefined;
+    }
+
+    const retryAfter = error.response?.headers?.["retry-after"];
+    if (typeof retryAfter === "number") {
+      return Math.max(0, retryAfter * 1000);
+    }
+    if (typeof retryAfter !== "string") {
+      return undefined;
+    }
+
+    const seconds = Number.parseFloat(retryAfter);
+    if (Number.isFinite(seconds)) {
+      return Math.max(0, seconds * 1000);
+    }
+
+    const retryDate = Date.parse(retryAfter);
+    return Number.isNaN(retryDate)
+      ? undefined
+      : Math.max(0, retryDate - Date.now());
+  }
+
+  private getRetryDelayMilliseconds(error: unknown, attempt: number): number {
+    const retryAfter = this.getRetryAfterMilliseconds(error);
+    if (retryAfter !== undefined) {
+      return retryAfter;
+    }
+
+    const exponentialDelay = this.retryBaseDelayMs * 2 ** attempt;
+    if (!axios.isAxiosError(error) || error.response?.status !== 429) {
+      return exponentialDelay;
+    }
+
+    const data = error.response.data as ComexstatErrorResponse;
+    const message = data?.message || data?.error?.message || "";
+    const suggestedSeconds = message.match(
+      /(\d+(?:[.,]\d+)?)\s*(?:segundos?|seconds?)/i
+    );
+    if (suggestedSeconds) {
+      const milliseconds =
+        Number.parseFloat(suggestedSeconds[1].replace(",", ".")) * 1000;
+      return Math.max(exponentialDelay, milliseconds);
+    }
+
+    return Math.max(exponentialDelay, 10000);
   }
 
   /**
    * Handles API errors
    * @param error The error object
    */
-  private handleError(error: unknown): void {
+  private handleError(error: unknown, endpoint?: string): void {
     if (axios.isAxiosError(error)) {
       const axiosError = error as CustomAxiosError;
       const status = axiosError.response?.status;
       const data = axiosError.response?.data as ComexstatErrorResponse;
-      const message = data?.message || axiosError.message;
+      const message =
+        data?.message || data?.error?.message || axiosError.message;
 
       console.error(`API Error (${status}): ${message}`);
 
-      // Enhance error with additional information
       axiosError.apiError = {
         status,
         message,
-        endpoint: axiosError.config?.url,
+        endpoint: endpoint || axiosError.config?.url,
       };
     } else {
       console.error("Non-Axios error:", error);
